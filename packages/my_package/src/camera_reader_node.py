@@ -4,9 +4,11 @@ import os
 import rospy
 from duckietown.dtros import DTROS, NodeType
 from sensor_msgs.msg import CompressedImage
+from std_msgs.msg import Bool
 
 import cv2
 from cv_bridge import CvBridge
+import numpy as np
 
 class CameraReaderNode(DTROS):
 
@@ -28,8 +30,20 @@ class CameraReaderNode(DTROS):
         # convert JPEG bytes to CV image
         image = self._bridge.compressed_imgmsg_to_cv2(msg)
         # display frame
-        cv2.imshow(self._window, image)
-        cv2.waitKey(1)
+
+        red_lower = np.array([70, 50, 200], dtype="uint8")
+        red_upper = np.array([110, 90, 255], dtype="uint8")
+
+        mask_red = cv2.inRange(image,red_lower,red_upper)
+
+        # image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+        # image = image*mask_red
+
+        nonZeros = cv2.countNonZero(mask_red)
+
+        self.remote_pub.publish(nonZeros > 0)
+
 
 if __name__ == '__main__':
     # create the node
