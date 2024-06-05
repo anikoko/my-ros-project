@@ -5,8 +5,8 @@ source /environment.sh
 # initialize launch file
 dt-launchfile-init
 
-# launch subscriber
-rosrun my_package wheel_control_node.py
+# launching app
+dt-exec rosrun my_package visual_lane_following_node.py
 
 # wait for app to end
 dt-launchfile-join

@@ -6,7 +6,7 @@ source /environment.sh
 dt-launchfile-init
 
 # launch subscriber
-rosrun my_package twist_control_node.py
+dt-exec rosrun my_package twist_control_node.py
 
 # wait for app to end
 dt-launchfile-join

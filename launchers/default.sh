@@ -5,20 +5,10 @@ source /environment.sh
 # initialize launch file
 dt-launchfile-init
 
-# YOUR CODE BELOW THIS LINE
-# ----------------------------------------------------------------------------
-
-
-# NOTE: Use the variable DT_REPO_PATH to know the absolute path to your code
-# NOTE: Use `dt-exec COMMAND` to run the main process (blocking process)
-
 # launching app
-dt-exec rosrun my_package camera_reader_node.py
 dt-exec rosrun my_package red_line_detection_node.py
 dt-exec rosrun my_package twist_control_node.py
-
-# ----------------------------------------------------------------------------
-# YOUR CODE ABOVE THIS LINE
+# dt-exec rosrun my_package visual_lane_following_node.py
 
 # wait for app to end
 dt-launchfile-join
