@@ -31,18 +31,19 @@ class CameraReaderNode(DTROS):
         image = self._bridge.compressed_imgmsg_to_cv2(msg)
         # display frame
 
-        red_lower = np.array([70, 50, 200], dtype="uint8")
-        red_upper = np.array([110, 90, 255], dtype="uint8")
+        # red_lower = np.array([70, 50, 200], dtype="uint8")
+        # red_upper = np.array([110, 90, 255], dtype="uint8")
 
-        mask_red = cv2.inRange(image,red_lower,red_upper)
+        # mask_red = cv2.inRange(image,red_lower,red_upper)
 
         # image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
         # image = image*mask_red
 
-        nonZeros = cv2.countNonZero(mask_red)
-
-        self.remote_pub.publish(nonZeros > 0)
+        # nonZeros = cv2.countNonZero(mask_red)
+        # cv2.imshow(self._window, image)
+        # cv2.waitKey(1)
+        self.sub.publish(image)
 
 
 if __name__ == '__main__':
