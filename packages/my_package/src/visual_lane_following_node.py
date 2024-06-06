@@ -9,6 +9,7 @@ import cv2
 from cv_bridge import CvBridge
 import numpy as np
 from typing import Tuple
+from std_msgs.msg import String, Bool, Float32
 
 HOST = os.environ['VEHICLE_NAME']
 TOPIC_NAME = f'/{HOST}/camera_node/image/compressed'
@@ -63,7 +64,7 @@ def detect_lane_markings(image: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
 
     # Compute the magnitude of the gradients
     Gmag = np.sqrt(sobelx * sobelx + sobely * sobely)
-    threshold = 2
+    threshold = 20
     mask_mag = (Gmag > threshold)
 
     white_lower_hsv = np.array([0, 0, 190.85])
@@ -101,50 +102,47 @@ class VisualLaneFollowingNode(DTROS):
         self._bridge = CvBridge()
         self.sub = rospy.Subscriber(TOPIC_NAME, CompressedImage, self.callback, queue_size=1, buff_size="10MB")
 
+        # Publishers
+        self.cmd_pub = rospy.Publisher('lane_following_cmd', Float32, queue_size=1)
+
         # Parameters
-        self.omega_max = 6.0
-        self.v_0 = 0.1  # initial forward velocity
+        self.omega_max = 2.0
         self.steer_max = -1  # maximum steer value
 
-        w, h = 640, 480
-
-        left = 0.1
-        right = 0.1
-        self._roi = (int(left * w), int(right * w))
-
     def callback(self, msg):
-        # convert JPEG bytes to CV image
+        # Convert JPEG bytes to CV image
         image = self._bridge.compressed_imgmsg_to_cv2(msg, "bgr8")
-        # Resize the image to the desired dimensionsS
-        height_original, width_original = image.shape[0:2]
-        img_size = image.shape[0:2]
-        if img_size[0] != width_original or img_size[1] != height_original:
-            image = cv2.resize(image, tuple(reversed(img_size)), interpolation=cv2.INTER_NEAREST)
+        h, w = image.shape[:2]
+        roi = (int(0.1 * w), int(0.1 * w))
 
-        (left, right) = self._roi
+        if h != image.shape[0] or w != image.shape[1]:
+            image = cv2.resize(image, (w, h), interpolation=cv2.INTER_NEAREST)
+
+        left, right = roi
         image = image[:, left:-right, :]
 
         if self.is_shutdown:
-            self.publish_command([0, 0])
+            self.publish_command(0)
             return
 
         shape = image.shape[0:2]
         steer_matrix_left_lm = get_steer_matrix_left_lane_markings(shape)
         steer_matrix_right_lm = get_steer_matrix_right_lane_markings(shape)
-        # Call the user-defined function to get the masks for the left and right lane markings
-        (lt_mask, rt_mask) = detect_lane_markings(image)
-        steer = float(np.sum(lt_mask * steer_matrix_left_lm)) + float(np.sum(rt_mask * steer_matrix_right_lm))
-        # now rescale from 0 to 1
-        steer_scaled = np.sign(steer) * self.rescale(min(np.abs(steer), self.steer_max), 0, self.steer_max)
-        u = [self.v_0, steer_scaled * self.omega_max]
-        self.publish_command(u)
 
-    def publish_command(self, u):
+        # Call the user-defined function to get the masks for the left and right lane markings
+        lt_mask, rt_mask = detect_lane_markings(image)
+        steer = float(np.sum(lt_mask * steer_matrix_left_lm)) + float(np.sum(rt_mask * steer_matrix_right_lm))
+
+        # Now rescale from 0 to 1
+        steer_scaled = np.sign(steer) * self.rescale(min(np.abs(steer), self.steer_max), 0, self.steer_max)
+        self.publish_command(steer_scaled * self.omega_max)
+
+    def publish_command(self, omega):
         car_control_msg = Twist2DStamped()
         car_control_msg.header.stamp = rospy.Time.now()
-        # car_control_msg.v = u[0]  # v
-        car_control_msg.omega = u[1]  # omega
-        # rospy.loginfo(f"Published command: v={u[0]}, omega={u[1]}")
+        car_control_msg.omega = omega
+        car_control_msg.v = 0.2
+        self.cmd_pub.publish(omega)
 
     def rescale(self, a: float, L: float, U: float):
         if np.allclose(L, U):

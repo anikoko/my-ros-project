@@ -13,6 +13,8 @@ twist_topic = f"/{vehicle_name}/car_cmd_switch_node/cmd"
 wheels_topic = f"/{vehicle_name}/wheels_driver_node/wheels_cmd"
 
 INITIAL_VELOCITY = 0.2
+INITIAL_STEERING = 0
+INITIAL_WHEEL_ROTATION = 0.2
 
 class TwistControlNode(DTROS):
     def __init__(self, node_name):
@@ -26,13 +28,17 @@ class TwistControlNode(DTROS):
         # Subscribers
         self.red_line_detected_sub = rospy.Subscriber('red_line_detected', Bool, self.detect_red_line, queue_size=1)
         self.red_line_distance_sub = rospy.Subscriber('red_line_distance', Float32, self.update_distance, queue_size=1)
+        self.cmd_sub = rospy.Subscriber('lane_following_cmd', Float32, self.update_steering, queue_size=1)
 
         # Variables
         self.red_line_detected = False
         self.red_line_distance = float('inf')
-        self.velocity = INITIAL_VELOCITY  # Initial linear velocity
-        self.wheel = 0.2
-        self.stopped_time = None
+
+        self.velocity = INITIAL_VELOCITY
+        self.omega = INITIAL_STEERING
+        self.wheel_rotation_left = INITIAL_WHEEL_ROTATION
+        self.wheel_rotation_right = INITIAL_WHEEL_ROTATION
+        self.has_stopped = False
 
         # PID controller parameters
         self.Kp = 0.005
@@ -49,25 +55,23 @@ class TwistControlNode(DTROS):
     def run(self):
         # Publish 10 messages every second (10 Hz)
         rate = rospy.Rate(10)
-        wheels = self.getWheel(0.2, 0.2)
-        twist = self.getTwist(self.velocity, 0)
+        wheels = self.getWheel(self.wheel_rotation_left, self.wheel_rotation_right)
+        twist = self.getTwist(self.velocity, self.omega)
         self.publish_wheels_twist(wheels, twist)
 
         while not rospy.is_shutdown():
-            if self.red_line_detected:
+            if self.red_line_detected and not self.has_stopped:
                 self.adjust_speed_pid()
-                if self.red_line_distance <= 10:
+                if self.red_line_distance <= 110:
+                    self.has_stopped = True
+                    print("Sleeping for 2 seconds")
                     self.stop()
                     rospy.sleep(2)
-                    self.reset_speed()
+                    self.reset_bot_values()
             else:
-                self.reset_speed()
-                self.integral = 0
-                self.previous_error = 0
+                self.reset_bot_values()
+                self.reset_pid_values()
             rate.sleep()
-
-    def on_shutdown(self):
-        self.stop()
 
     def getTwist(self, velocity, omega):
         twist = Twist2DStamped()
@@ -83,12 +87,13 @@ class TwistControlNode(DTROS):
 
     def stop(self):
         self.velocity = 0
+        self.omega = 0
         wheel = self.getWheel(0, 0)
         twist = self.getTwist(0, 0)
         self.publish_wheels_twist(wheel, twist)
 
-    def publish_wheels_twist(self, wheel, twist):
-        self.publish_wheels_cmd.publish(wheel)
+    def publish_wheels_twist(self, wheels, twist):
+        self.publish_wheels_cmd.publish(wheels)
         self.publish_cmd.publish(twist)
 
     # Subscriber function to detect red line
@@ -99,13 +104,19 @@ class TwistControlNode(DTROS):
     def update_distance(self, msg):
         self.red_line_distance = msg.data
 
+    # Subscriber function to get steering
+    def update_steering(self, msg):
+        self.omega = msg.data
+        if self.omega != 0:
+            rospy.loginfo(f'Steering changed to {self.omega}')
+
     def adjust_speed_pid(self):
         current_time = time.time()
         time_delta = current_time - self.previous_time
 
-        error = self.red_line_distance - 0 # Desired distance is 0
+        error = self.red_line_distance - 0  # Desired distance is 0
         self.integral += error * time_delta
-        self.integral = max(min(self.integral, 2), -2) # Prevent integral error to grow too much
+        self.integral = max(min(self.integral, 2), -2)  # Prevent integral error to grow too much
         derivative = (error - self.previous_error) / time_delta
 
         self.velocity = self.Kp * error + self.Ki * self.integral + self.Kd * derivative
@@ -117,14 +128,24 @@ class TwistControlNode(DTROS):
         self.previous_error = error
         self.previous_time = current_time
 
-        twist = self.getTwist(self.velocity / 10, 0)
+        twist = self.getTwist(self.velocity / 10, self.omega)
         self.publish_cmd.publish(twist)
 
-    def reset_speed(self):
+    def reset_bot_values(self):
         self.velocity = INITIAL_VELOCITY
-        twist = self.getTwist(self.velocity, 0)
-        wheels = self.getWheel(0.2, 0.2)
+        self.omega = INITIAL_STEERING
+        self.wheel_rotation_left = INITIAL_WHEEL_ROTATION
+        self.wheel_rotation_right = INITIAL_WHEEL_ROTATION
+        twist = self.getTwist(self.velocity, self.omega)
+        wheels = self.getWheel(self.wheel_rotation_left, self.wheel_rotation_right)
         self.publish_wheels_twist(wheels, twist)
+
+    def reset_pid_values(self):
+        self.integral = 0
+        self.previous_error = 0
+
+    def on_shutdown(self):
+        self.stop()
 
 
 if __name__ == '__main__':
